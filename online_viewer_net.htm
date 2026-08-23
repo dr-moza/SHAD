@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Shade Guide</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent-color: #38bdf8;
+            --text-color: #f8fafc;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            max-width: 900px;
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+
+        @media (min-width: 768px) {
+            .container { grid-template-columns: 1fr 1fr; }
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .viewfinder-box {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 4/3;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        video, canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .reticle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            border: 2px dashed #00ffcc;
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(0,255,204,0.5);
+            pointer-events: none;
+        }
+
+        .reticle::after {
+            content: '';
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 4px; height: 4px;
+            background: #00ffcc;
+            border-radius: 50%;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px;
+            background-color: var(--accent-color);
+            color: #000;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        button:hover { opacity: 0.9; }
+        button:disabled { background: #64748b; cursor: not-allowed; }
+
+        .error-msg {
+            color: #ef4444;
+            background: rgba(239, 68, 68, 0.1);
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            display: none;
+            margin-bottom: 10px;
+        }
+
+        .result-box {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .color-swatch-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .swatch {
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            border: 2px solid #fff;
+        }
+
+        .shade-title {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--accent-color);
+            margin: 0;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            background: rgba(0,0,0,0.2);
+            padding: 10px;
+            border-radius: 6px;
+            font-family: monospace;
+        }
+
+        .metric-item { text-align: center; }
+        .metric-label { font-size: 0.8rem; color: #94a3b8; }
+        .metric-val { font-size: 1.1rem; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>Dental Digital Shade Guide</h1>
+
+    <div class="container">
+        <div class="card">
+            <div id="cam-error" class="error-msg"></div>
+            <div class="viewfinder-box">
+                <video id="webcam" autoplay playsinline muted></video>
+                <div class="reticle"></div>
+            </div>
+            <div class="controls">
+                <button id="btn-torch">الفلاش 💡</button>
+                <button id="btn-capture">قراءة السن 🦷</button>
+            </div>
+        </div>
+
+        <div class="card result-box">
+            <h3>نتائج التحليل الطيفي</h3>
+            
+            <div class="color-swatch-container">
+                <div id="swatch-captured" class="swatch" style="background: #ccc;"></div>
+                <div>
+                    <div style="font-size: 0.9rem; color: #94a3b8;">الدرجة المطابقة (VITA Classic):</div>
+                    <div id="shade-result" class="shade-title">--</div>
+                </div>
+            </div>
+
+            <div style="font-size: 0.85rem; color: #94a3b8;">الفارق اللوني ($\Delta E$): <span id="delta-e-val">--</span></div>
+
+            <h4>الإحداثيات اللونية (CIE L*a*b*):</h4>
+            <div class="metrics">
+                <div class="metric-item">
+                    <div class="metric-label">L* (الحيود)</div>
+                    <div id="val-l" class="metric-val">0</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">a* (أحمر/أخضر)</div>
+                    <div id="val-a" class="metric-val">0</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-label">b* (أصفر/أزرق)</div>
+                    <div id="val-b" class="metric-val">0</div>
+                </div>
+            </div>
+
+            <canvas id="process-canvas" style="display:none;"></canvas>
+        </div>
+    </div>
+
+<script>
+const VITA_DATABASE = [
+    { shade: "A1", l: 76.8, a: 1.4, b: 14.2 },
+    { shade: "A2", l: 73.1, a: 2.1, b: 16.5 },
+    { shade: "A3", l: 70.5, a: 3.2, b: 19.8 },
+    { shade: "A3.5", l: 67.8, a: 4.1, b: 22.1 },
+    { shade: "A4", l: 64.2, a: 4.8, b: 21.5 },
+    { shade: "B1", l: 78.2, a: -0.2, b: 12.8 },
+    { shade: "B2", l: 74.5, a: 0.8, b: 16.1 },
+    { shade: "B3", l: 71.2, a: 2.5, b: 20.4 },
+    { shade: "B4", l: 66.9, a: 3.1, b: 22.8 },
+    { shade: "C1", l: 72.1, a: 0.2, b: 11.5 },
+    { shade: "C2", l: 68.3, a: 1.2, b: 14.8 },
+    { shade: "C3", l: 64.5, a: 1.9, b: 16.2 },
+    { shade: "C4", l: 60.1, a: 2.4, b: 17.5 },
+    { shade: "D2", l: 73.2, a: 0.5, b: 13.1 },
+    { shade: "D3", l: 69.4, a: 1.8, b: 15.9 },
+    { shade: "D4", l: 67.1, a: 2.2, b: 17.8 }
+];
+
+const video = document.getElementById('webcam');
+const btnTorch = document.getElementById('btn-torch');
+const btnCapture = document.getElementById('btn-capture');
+const canvas = document.getElementById('process-canvas');
+const errBox = document.getElementById('cam-error');
+let track = null;
+let torchOn = false;
+
+function showError(msg) {
+    errBox.innerText = msg;
+    errBox.style.display = 'block';
+}
+
+async function initCamera() {
+    errBox.style.display = 'none';
+
+    // التأكد من توفر وسائط الأجهزة
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showError("المتصفح لا يدعم الوصول للكاميرا، أو أنك تفتح الملف بدون سيرفر (File Protocol). استخدم Live Server أو HTTPS.");
+        return;
+    }
+
+    // محاولة أولى: طلب الكاميرا الخلفية
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment" }
+        });
+        startStream(stream);
+        return;
+    } catch (e1) {
+        console.warn("فشل فتح الكاميرا الخلفية المحددة، جاري المحاولة بشكل عام...", e1);
+    }
+
+    // محاولة ثانية: طلب أي كاميرا متاحة
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        startStream(stream);
+    } catch (e2) {
+        showError("تعذر الوصول إلى الكاميرا. يرجى التأكد من السماح بالوصول للأذونات (Camera Permissions) في المتصفح.");
+        console.error(e2);
+    }
+}
+
+function startStream(stream) {
+    video.srcObject = stream;
+    track = stream.getVideoTracks()[0];
+    
+    // فحص إمكانية التشغيل التلقائي
+    video.play().catch(err => {
+        console.warn("تطلب تفاعل المستخدم للتشغيل:", err);
+    });
+}
+
+btnTorch.addEventListener('click', async () => {
+    if (!track) return;
+    torchOn = !torchOn;
+    try {
+        await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+        btnTorch.innerText = torchOn ? "إيقاف الفلاش 🔇" : "الفلاش 💡";
+    } catch (e) {
+        alert("الفلاش غير مدعوم على هذه الكاميرا أو المتصفح");
+    }
+});
+
+btnCapture.addEventListener('click', () => {
+    if (!video.videoWidth) {
+        alert("الكاميرا غير متصلة بعد!");
+        return;
+    }
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const roiSize = 20;
+    const imgData = ctx.getImageData(centerX - (roiSize/2), centerY - (roiSize/2), roiSize, roiSize);
+
+    let sumR = 0, sumG = 0, sumB = 0;
+    const totalPixels = imgData.data.length / 4;
+
+    for (let i = 0; i < imgData.data.length; i += 4) {
+        sumR += imgData.data[i];
+        sumG += imgData.data[i+1];
+        sumB += imgData.data[i+2];
+    }
+
+    const avgR = Math.round(sumR / totalPixels);
+    const avgG = Math.round(sumG / totalPixels);
+    const avgB = Math.round(sumB / totalPixels);
+
+    document.getElementById('swatch-captured').style.backgroundColor = `rgb(${avgR}, ${avgG}, ${avgB})`;
+
+    const lab = rgbToLab(avgR, avgG, avgB);
+    document.getElementById('val-l').innerText = lab.L;
+    document.getElementById('val-a').innerText = lab.a;
+    document.getElementById('val-b').innerText = lab.b;
+
+    let closestShade = null;
+    let minDeltaE = Infinity;
+
+    VITA_DATABASE.forEach(item => {
+        const deltaE = calculateDeltaE(lab, item);
+        if (deltaE < minDeltaE) {
+            minDeltaE = deltaE;
+            closestShade = item.shade;
+        }
+    });
+
+    document.getElementById('shade-result').innerText = closestShade;
+    document.getElementById('delta-e-val').innerText = minDeltaE.toFixed(2);
+});
+
+function rgbToLab(r, g, b) {
+    let rN = r / 255, gN = g / 255, bN = b / 255;
+    rN = (rN > 0.04045) ? Math.pow((rN + 0.055) / 1.055, 2.4) : rN / 12.92;
+    gN = (gN > 0.04045) ? Math.pow((gN + 0.055) / 1.055, 2.4) : gN / 12.92;
+    bN = (bN > 0.04045) ? Math.pow((bN + 0.055) / 1.055, 2.4) : bN / 12.92;
+
+    let X = (rN * 0.4124564 + gN * 0.3575761 + bN * 0.1804375) * 100 / 95.047;
+    let Y = (rN * 0.2126729 + gN * 0.7151522 + bN * 0.0721750) * 100 / 100.000;
+    let Z = (rN * 0.0193339 + gN * 0.1191920 + bN * 0.9503041) * 100 / 108.883;
+
+    const f = t => (t > 0.008856) ? Math.pow(t, 1/3) : (7.787 * t) + (16 / 116);
+    let fx = f(X), fy = f(Y), fz = f(Z);
+
+    return {
+        L: ((116 * fy) - 16).toFixed(1),
+        a: (500 * (fx - fy)).toFixed(1),
+        b: (200 * (fy - fz)).toFixed(1)
+    };
+}
+
+function calculateDeltaE(lab1, lab2) {
+    return Math.sqrt(
+        Math.pow(lab1.L - lab2.l, 2) +
+        Math.pow(lab1.a - lab2.a, 2) +
+        Math.pow(lab1.b - lab2.b, 2)
+    );
+}
+
+// بدء التشغيل
+initCamera();
+</script>
+</body>
+</html>
